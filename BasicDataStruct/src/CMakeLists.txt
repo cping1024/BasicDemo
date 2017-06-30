@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 2.8)
+file(GLOB_RECURSE src *.cpp)
+foreach(source ${src})
+	get_filename_component(name ${source} NAME_WE)
+	set(name ${name}.bin)
+	add_executable(${name} ${source})
+	install(TARGETS ${name} DESTINATION bin)
+endforeach()
