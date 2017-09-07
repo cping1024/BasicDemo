@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 2.8)
 file(GLOB_RECURSE src *.cpp)
+file(GLOB_RECURSE cu_src *.cu)
+
+#CUDA_COMPILE(cu_objs ${cu_src})
+foreach(source ${cu_src})
+    get_filename_component(name ${source} NAME_WE)
+    set(name ${name}.bin)
+    cuda_add_executable(${name} ${source})
+    target_link_libraries(${name} ${lib_deps})
+    install(TARGETS ${name} DESTINATION bin)
+endforeach()
+
 foreach(source ${src})
 	get_filename_component(name ${source} NAME_WE)
 	set(name ${name}.bin)
