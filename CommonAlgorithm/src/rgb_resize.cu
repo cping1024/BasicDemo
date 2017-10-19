@@ -45,33 +45,35 @@ __global__ void rgb_resize_kenerl(const unsigned char* in, unsigned char* out, i
         return;
     }
 
-    float fx = idx * x_scale;
-    float fy = idy * y_scale;
-    int channel = idz;
+    float fx = (idx + 0.5) * i_w / o_w - 0.5;
+    float fy = (idy + 0.5) * i_h / o_h - 0.5;
 
     int px1 = int(fx);
     int py1 = int(fy);
     int px2 = px1 + 1;
+    if (px2 >= iw) {
+        --px2;
+    }
     int py2 = py1;
     int px3 = px1;
     int py3 = py1 + 1;
+    if (py3 >= ih) {
+        --py3;
+    }
     int px4 = px2;
     int py4 = py3;
 
-    float pv1 = abs(fx - px1) * abs(fy - py1);
-    float pv2 = abs(fx - px2) * abs(fy - py2);
-    float pv3 = abs(fx - px3) * abs(fy - py3);
-    float pv4 = abs(fx - px4) * abs(fy - py4);
-
+    float pv1 = fabs(px2 - fx) * fabs(py3 - fy);
+    float pv2 = fabs(px1 - fx) * fabs(py3 - fy);
+    float pv3 = fabs(px2 - fx) * fabs(fy - py1);
+    float pv4 = fabs(px1 - fx) * fabs(fy - py1);
     int offset = (idy * o_w + idx) * 3 + idz;
     int offset1 = (py1 * i_w + px1) * 3 + idz;
     int offset2 = (py2 * i_w + px2) * 3 + idz;
     int offset3 = (py3 * i_w + px3) * 3 + idz;
     int offset4 = (py4 * i_w + px4) * 3 + idz;
     
-    float value = pv1 * in[offset1] + pv2 * in[offset2] + pv3 * in[offset3] + pv4 * in[offset4];
-    //int value = 0.25 * in[offset1] + 0.25 * in[offset2] + 0.25 * in[offset3] + 0.25 * in[offset4];
-    out[offset] = value;
+    out[offset] = pv1 * in[offset1] + pv2 * in[offset2] + pv3 * in[offset3] + pv4 * in[offset4];
 }
 
 void sn_gpu_resize(const cv::gpu::GpuMat& src, cv::gpu::GpuMat& des, const cv::Size& size) {
@@ -167,19 +169,38 @@ void rgb_resize_cpu(const unsigned char* src, unsigned char* des, int iw, int ih
         return; 
     }
     
-    for (int i = 0; i < oh; ++i) {
-        
+    for (int i = 0; i < oh; ++i) {        
+        float fy = (i + 0.5) * ih / oh - 0.5;
         for (int j = 0; j < ow; ++j) {
-            float fx = x * j;
-            float fy = y * i;
-            
+            float fx = (j + 0.5) * iw / ow - 0.5;
+
+            int px1 = int(fx);
+            int py1 = int(fy);
+            int px2 = px1 + 1;
+            if (px2 >= iw) {
+                --px2;
+            }
+
+            int py2 = py1;
+            int px3 = px1;
+            int py3 = py1 + 1;
+            if (py3 >= ih) {
+                --py3;
+            }
+            int px4 = px2;
+            int py4 = py3;
+
+            float pv1 = fabs(px2 - fx) * fabs(py3 - fy);
+            float pv2 = fabs(px1 - fx) * fabs(py3 - fy);
+            float pv3 = fabs(px2 - fx) * fabs(fy - py1);
+            float pv4 = fabs(px1 - fx) * fabs(fy - py1);
+
             for (int n = 0; n < 3; ++n) {
-                
-                int offset1 = int(fy) * iw * 3 + int(fx) * 3 + n;
-                int offset2 = int(fy) * iw * 3 + (int(fx) + 1) * 3 + n;
-                int offset3 = (int(fy) + 1) * iw * 3 + int(fx) * 3 + n;
-                int offset4 = (int(fy) + 1) * iw * 3 + (int(fx) + 1) * 3 + n;
-                des[(i * ow  + j) * 3 + n] = 0.7 * src[offset1] + 0.1 * src[offset2] + 0.1 * src[offset3] + 0.1 * src[offset4];  
+                int offset1 = py1 * iw * 3 + px1 * 3 + n;
+                int offset2 = py2 * iw * 3 + px2 * 3 + n;
+                int offset3 = py3 * iw * 3 + px3 * 3 + n;
+                int offset4 = py4 * iw * 3 + px4 * 3 + n;
+                des[(i * ow  + j) * 3 + n] = pv1 * src[offset1] + pv2 * src[offset2] + pv3 * src[offset3] + pv4 * src[offset4];
             }
         }
     }
@@ -297,7 +318,7 @@ void test_copymakeborder(std::string& filename){
     cudaFree(des);
 }
 
-void test_sn_gpu_resize(const std::string& filename ) {
+void test_sn_gpu_resize(const std::string& filename, float scale, int row) {
     
     cv::Mat image = cv::imread(filename);
     if (!image.data) {
@@ -308,9 +329,10 @@ void test_sn_gpu_resize(const std::string& filename ) {
     
     printf("gpu mat width[%d], height[%d], step[%d].\n", gpu_mat.cols, gpu_mat.rows, gpu_mat.step);
     const int count = 1;    
-    float scale = 0.5f;
+    //float scale = 0.33f;
     int width = image.cols * scale;
     int height = image.rows * scale;
+
     steady_clock::time_point start = steady_clock::now();
     for (int i = 0; i < count; ++i) {
         cv::gpu::GpuMat resize_image;
@@ -322,10 +344,14 @@ void test_sn_gpu_resize(const std::string& filename ) {
 
     cv::gpu::GpuMat resize_image;
     sn_gpu_resize(gpu_mat, resize_image, cv::Size(width, height));
+
     cv::Mat temp;
+    //sn_cpu_resize(image, temp, cv::Size(width, height));
     resize_image.download(temp);
     cv::imshow("temp", temp);
     cv::waitKey();
+    std::cout << "gpu resize image:" << temp.row(row) << std::endl;
+    printf("resize image w[%d], h[%d], scale[%f], show row[%d].\n", temp.cols, temp.rows, scale, row);
 
     cv::imshow("src", image);
     cv::waitKey();
@@ -333,8 +359,8 @@ void test_sn_gpu_resize(const std::string& filename ) {
 
 int main(int argc, char* argv[]) {
 
-    if (argc != 2) { 
-        printf("usage:./application <image filename>.\n");
+    if (argc != 4) {
+        printf("usage:./application <image filename> scale row_num.\n");
         return -1;    
     }
 
@@ -343,7 +369,9 @@ int main(int argc, char* argv[]) {
 
     //test_copymakeborder(filename);
 
-    test_sn_gpu_resize(argv[1]);
+    float scale = atof(argv[2]);
+    int row = atof(argv[3]);
+    test_sn_gpu_resize(argv[1], scale, row);
     return 0;
 }
 
